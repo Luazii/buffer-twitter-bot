@@ -83,62 +83,124 @@ def cmd_list_channels():
 def run_generation_pipeline(mock: bool = False) -> tuple:
     """
     Executes the LLM pipeline: read history/brand voice -> generate -> score -> select -> polish.
+    Supports automatic provider failover (Gemini -> Mistral -> OpenAI).
     Returns: (polished_tweet, selected_idea)
     """
-    base_url = None
-    if mock:
-        api_key = "mock"
-        model_name = "mock-model"
-    else:
-        gemini_key = os.getenv("GEMINI_API_KEY")
-        if gemini_key:
-            api_key = gemini_key
-            base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
-            model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-            print("Using Google Gemini API.")
-        else:
-            api_key = get_env_var("OPENAI_API_KEY")
-            model_name = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-            print("Using OpenAI API.")
-    
     print("Loading brand voice and history...")
     brand_voice = load_text_file(BRAND_VOICE_FILE)
     history = load_history(HISTORY_FILE)
-    
-    print(f"Initializing LLM client (Model: {model_name})...")
-    llm = LLMClient(api_key, model_name, base_url=base_url)
-    
-    print("\n--- STEP 1: Generating 5 Ideas ---")
-    ideas = llm.generate_ideas(brand_voice, history)
-    for idea in ideas:
-        print(f"ID {idea.get('id')} [{idea.get('topic')}]: {idea.get('idea_text')}")
+
+    if mock:
+        # Mock mode does not make API calls
+        print("Initializing LLM client (Model: mock-model)...")
+        llm = LLMClient("mock", "mock-model")
         
-    print("\n--- STEPS 2 & 3: Scoring Ideas ---")
-    scores = llm.score_ideas(ideas, brand_voice)
-    for score in scores:
-        idea_id = score.get("id")
-        total = (score.get("brand_alignment_score", 0) + 
-                 score.get("engagement_score", 0) + 
-                 score.get("originality_score", 0)) / 3.0
-        print(f"ID {idea_id}: Brand: {score.get('brand_alignment_score')}/10, "
-              f"Engagement: {score.get('engagement_score')}/10, "
-              f"Originality: {score.get('originality_score')}/10 (Avg: {total:.2f})")
-        print(f"  Reason: {score.get('reasoning')}")
+        print("\n--- STEP 1: Generating 5 Ideas ---")
+        ideas = llm.generate_ideas(brand_voice, history)
+        for idea in ideas:
+            print(f"ID {idea.get('id')} [{idea.get('topic')}]: {idea.get('idea_text')}")
+            
+        print("\n--- STEPS 2 & 3: Scoring Ideas ---")
+        scores = llm.score_ideas(ideas, brand_voice)
+        for score in scores:
+            idea_id = score.get("id")
+            total = (score.get("brand_alignment_score", 0) + 
+                     score.get("engagement_score", 0) + 
+                     score.get("originality_score", 0)) / 3.0
+            print(f"ID {idea_id}: Brand: {score.get('brand_alignment_score')}/10, "
+                  f"Engagement: {score.get('engagement_score')}/10, "
+                  f"Originality: {score.get('originality_score')}/10 (Avg: {total:.2f})")
+            print(f"  Reason: {score.get('reasoning')}")
+            
+        print("\n--- STEP 4: Selecting Best Idea ---")
+        best_idea = llm.select_best_idea(ideas, scores)
+        print(f"Selected ID {best_idea.get('id')} (Topic: {best_idea.get('topic')}) "
+              f"with score {best_idea.get('composite_score'):.2f}")
         
-    print("\n--- STEP 4: Selecting Best Idea ---")
-    best_idea = llm.select_best_idea(ideas, scores)
-    print(f"Selected ID {best_idea.get('id')} (Topic: {best_idea.get('topic')}) "
-          f"with score {best_idea.get('composite_score'):.2f}")
-    
-    print("\n--- STEP 5: Rewriting & Polishing ---")
-    polished_tweet = llm.polish_idea(best_idea, brand_voice)
-    print("Polished Tweet Content:")
-    print("-" * 40)
-    print(polished_tweet)
-    print("-" * 40)
-    print(f"Length: {len(polished_tweet)} characters")
-    
-    return polished_tweet, best_idea
+        print("\n--- STEP 5: Rewriting & Polishing ---")
+        polished_tweet = llm.polish_idea(best_idea, brand_voice)
+        print("Polished Tweet Content:")
+        print("-" * 40)
+        print(polished_tweet)
+        print("-" * 40)
+        print(f"Length: {len(polished_tweet)} characters")
+        
+        return polished_tweet, best_idea
+
+    # Live API mode: Build list of available providers
+    providers = []
+    if os.getenv("GEMINI_API_KEY"):
+        providers.append({
+            "name": "Google Gemini",
+            "key": os.getenv("GEMINI_API_KEY"),
+            "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+            "model": os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        })
+    if os.getenv("MISTRAL_API_KEY"):
+        providers.append({
+            "name": "Mistral AI",
+            "key": os.getenv("MISTRAL_API_KEY"),
+            "base_url": "https://api.mistral.ai/v1",
+            "model": os.getenv("MISTRAL_MODEL", "mistral-small-latest")
+        })
+    if os.getenv("OPENAI_API_KEY"):
+        providers.append({
+            "name": "OpenAI",
+            "key": os.getenv("OPENAI_API_KEY"),
+            "base_url": None,
+            "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        })
+
+    if not providers:
+        print("Error: No LLM provider API keys found in the environment.", file=sys.stderr)
+        print("Please configure at least one of: GEMINI_API_KEY, MISTRAL_API_KEY, or OPENAI_API_KEY.", file=sys.stderr)
+        sys.exit(1)
+
+    # Attempt generation with providers in order
+    for idx, provider in enumerate(providers):
+        try:
+            print(f"\nAttempting generation with {provider['name']} (Model: {provider['model']})...")
+            llm = LLMClient(provider['key'], provider['model'], base_url=provider['base_url'])
+
+            print("\n--- STEP 1: Generating 5 Ideas ---")
+            ideas = llm.generate_ideas(brand_voice, history)
+            for idea in ideas:
+                print(f"ID {idea.get('id')} [{idea.get('topic')}]: {idea.get('idea_text')}")
+                
+            print("\n--- STEPS 2 & 3: Scoring Ideas ---")
+            scores = llm.score_ideas(ideas, brand_voice)
+            for score in scores:
+                idea_id = score.get("id")
+                total = (score.get("brand_alignment_score", 0) + 
+                         score.get("engagement_score", 0) + 
+                         score.get("originality_score", 0)) / 3.0
+                print(f"ID {idea_id}: Brand: {score.get('brand_alignment_score')}/10, "
+                      f"Engagement: {score.get('engagement_score')}/10, "
+                      f"Originality: {score.get('originality_score')}/10 (Avg: {total:.2f})")
+                print(f"  Reason: {score.get('reasoning')}")
+                
+            print("\n--- STEP 4: Selecting Best Idea ---")
+            best_idea = llm.select_best_idea(ideas, scores)
+            print(f"Selected ID {best_idea.get('id')} (Topic: {best_idea.get('topic')}) "
+                  f"with score {best_idea.get('composite_score'):.2f}")
+            
+            print("\n--- STEP 5: Rewriting & Polishing ---")
+            polished_tweet = llm.polish_idea(best_idea, brand_voice)
+            print("Polished Tweet Content:")
+            print("-" * 40)
+            print(polished_tweet)
+            print("-" * 40)
+            print(f"Length: {len(polished_tweet)} characters")
+
+            # Success! Return the results
+            return polished_tweet, best_idea
+
+        except Exception as e:
+            print(f"Warning: Generation failed using {provider['name']} due to error: {e}")
+            if idx == len(providers) - 1:
+                # If this was the last available provider, bubble up the exception
+                raise e
+            print("Trying the next available LLM provider...")
 
 def cmd_test_generate(mock: bool = False, count: int = 1):
     print(f"Running dry-run content generation pipeline for {count} posts...")
