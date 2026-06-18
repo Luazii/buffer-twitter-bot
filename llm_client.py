@@ -1,4 +1,6 @@
 import json
+import time
+import openai
 from openai import OpenAI
 from typing import Dict, List, Any, Tuple
 
@@ -23,23 +25,43 @@ class LLMClient:
     def _call_llm_json(self, system_prompt: str, user_prompt: str) -> Dict[str, Any]:
         """
         Helper method to call OpenAI with JSON response format.
+        Includes rate limit exception handling and exponential backoff retry.
         """
         if self.client is None:
             raise ValueError("LLMClient is in mock mode and cannot call live APIs.")
             
-        response = self.client.chat.completions.create(
-            model=self.model_name,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.7
-        )
-        content = response.choices[0].message.content
-        if not content:
-            raise ValueError("Received empty response from OpenAI.")
-        return json.loads(content)
+        max_retries = 5
+        retry_delay = 10  # start with 10 seconds wait on rate limit
+        
+        for attempt in range(max_retries):
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    response_format={"type": "json_object"},
+                    temperature=0.7
+                )
+                
+                # Space out successful requests slightly to prevent hitting the rate limit
+                time.sleep(5)
+                
+                content = response.choices[0].message.content
+                if not content:
+                    raise ValueError("Received empty response from OpenAI.")
+                return json.loads(content)
+                
+            except openai.RateLimitError as e:
+                if attempt == max_retries - 1:
+                    raise e
+                print(f"Rate limit hit: {e}. Retrying in {retry_delay} seconds (Attempt {attempt+1}/{max_retries})...")
+                time.sleep(retry_delay)
+                retry_delay *= 2  # Exponential backoff
+            except Exception as e:
+                # Raise other exceptions immediately
+                raise e
 
     def generate_ideas(self, brand_voice: str, history: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
