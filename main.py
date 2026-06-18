@@ -140,52 +140,57 @@ def run_generation_pipeline(mock: bool = False) -> tuple:
     
     return polished_tweet, best_idea
 
-def cmd_test_generate(mock: bool = False):
-    print("Running dry-run content generation pipeline...")
-    run_generation_pipeline(mock)
+def cmd_test_generate(mock: bool = False, count: int = 1):
+    print(f"Running dry-run content generation pipeline for {count} posts...")
+    for i in range(count):
+        print(f"\n=================== SIMULATION POST {i+1} of {count} ===================")
+        run_generation_pipeline(mock)
     print("\nDry-run complete. No posts were scheduled.")
 
-def cmd_run(mock: bool = False):
-    print("Starting automated posting sequence...")
-    # Generate post content
-    polished_tweet, idea_details = run_generation_pipeline(mock)
+def cmd_run(mock: bool = False, count: int = 1):
+    print(f"Starting automated posting sequence for {count} posts...")
     
-    # Verify length constraints (strictly under 280 characters)
-    if len(polished_tweet) > 280:
-        print(f"Error: Generated tweet is too long ({len(polished_tweet)} chars). Aborting.", file=sys.stderr)
-        sys.exit(1)
+    for i in range(count):
+        print(f"\n=================== GENERATING POST {i+1} of {count} ===================")
+        # Generate post content (reads history which is updated in previous iteration)
+        polished_tweet, idea_details = run_generation_pipeline(mock)
         
-    if mock:
-        buffer_key = "mock"
-        channel_id = "mock"
-        print("\n[MOCK] Bypassing Buffer API. Simulating queue additions.")
-    else:
-        buffer_key = get_env_var("BUFFER_API_KEY")
-        channel_id = get_env_var("BUFFER_CHANNEL_ID")
-    
-    print(f"\nScheduling post on Buffer (Channel ID: {channel_id})...")
-    
-    try:
+        # Verify length constraints (strictly under 260 characters)
+        if len(polished_tweet) > 260:
+            print(f"Error: Generated tweet is too long ({len(polished_tweet)} chars). Skipping this post.", file=sys.stderr)
+            continue
+            
         if mock:
-            post_info = {"id": "mock_buffer_post_12345"}
+            buffer_key = "mock"
+            channel_id = "mock"
+            print("\n[MOCK] Bypassing Buffer API. Simulating queue additions.")
         else:
-            buffer = BufferClient(buffer_key)
-            post_info = buffer.create_post(channel_id, polished_tweet)
-        print(f"Success! Post queued. Buffer Post ID: {post_info.get('id')}")
-    except Exception as e:
-        print(f"Failed to schedule post on Buffer: {e}", file=sys.stderr)
-        sys.exit(1)
+            buffer_key = get_env_var("BUFFER_API_KEY")
+            channel_id = get_env_var("BUFFER_CHANNEL_ID")
         
-    print("Updating history file...")
-    history = load_history(HISTORY_FILE)
-    history.append({
-        "text": polished_tweet,
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "topic": idea_details.get("topic"),
-        "score": idea_details.get("composite_score")
-    })
-    save_history(HISTORY_FILE, history)
-    print(f"History updated. Total posts stored: {len(history)}")
+        print(f"\nScheduling post on Buffer (Channel ID: {channel_id})...")
+        
+        try:
+            if mock:
+                post_info = {"id": f"mock_buffer_post_{12345 + i}"}
+            else:
+                buffer = BufferClient(buffer_key)
+                post_info = buffer.create_post(channel_id, polished_tweet)
+            print(f"Success! Post queued. Buffer Post ID: {post_info.get('id')}")
+        except Exception as e:
+            print(f"Failed to schedule post on Buffer: {e}", file=sys.stderr)
+            sys.exit(1)
+            
+        print("Updating history file...")
+        history = load_history(HISTORY_FILE)
+        history.append({
+            "text": polished_tweet,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "topic": idea_details.get("topic"),
+            "score": idea_details.get("composite_score")
+        })
+        save_history(HISTORY_FILE, history)
+        print(f"History updated. Total posts stored: {len(history)}")
 
 def main():
     parser = argparse.ArgumentParser(description="Automated Buffer Twitter/X Posting Bot")
@@ -195,15 +200,16 @@ def main():
     group.add_argument("--run", action="store_true", help="Generate post and queue to Buffer")
     
     parser.add_argument("--mock", action="store_true", help="Use mock responses for OpenAI and Buffer to run a dry test without API keys")
+    parser.add_argument("--count", type=int, default=1, help="Number of posts to generate and queue (default: 1)")
     
     args = parser.parse_args()
     
     if args.list_channels:
         cmd_list_channels()
     elif args.test_generate:
-        cmd_test_generate(args.mock)
+        cmd_test_generate(args.mock, args.count)
     elif args.run:
-        cmd_run(args.mock)
+        cmd_run(args.mock, args.count)
 
 if __name__ == "__main__":
     main()

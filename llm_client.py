@@ -170,10 +170,10 @@ class LLMClient:
             "You are a master tweet writer. Your job is to take a draft tweet concept and rewrite it "
             "into a polished, high-engagement version.\n\n"
             "Crucial Constraints:\n"
-            "1. The final post MUST be strictly under 280 characters (usually aiming for 200-260 to be safe).\n"
+            "1. The final post MUST be strictly under 260 characters.\n"
             "2. Use line breaks to make it highly readable and skimmable.\n"
             "3. Ensure the hook (first line) is compelling and clicks with readers.\n"
-            "4. Do NOT use emojis unless they are highly relevant, and never use more than one.\n"
+            "4. NEVER use emojis.\n"
             "5. NO HASHTAGS.\n"
             "6. Keep the tone natural and authentic.\n\n"
             "Return a JSON object with a single key 'polished_tweet' containing the final polished tweet text."
@@ -194,15 +194,15 @@ class LLMClient:
         # Verify length constraint
         polished_tweet = polished_tweet.strip()
         attempts = 0
-        while len(polished_tweet) > 280 and attempts < 3:
+        while len(polished_tweet) > 260 and attempts < 3:
             attempts += 1
             print(f"Warning: Polished tweet is too long ({len(polished_tweet)} characters). Asking LLM to shorten (Attempt {attempts}/3)...")
             shorten_prompt = (
-                f"The following polished tweet is {len(polished_tweet)} characters, which violates the strict 280-character limit:\n\n"
+                f"The following polished tweet is {len(polished_tweet)} characters, which violates the strict 260-character limit:\n\n"
                 f"\"{polished_tweet}\"\n\n"
-                f"Please rewrite and shorten this tweet so it is strictly under 280 characters. "
+                f"Please rewrite and shorten this tweet so it is strictly under 260 characters. "
                 f"Ensure you preserve the strong hook, line breaks, and insightful brand voice. "
-                f"Do not use hashtags, and return the output in the same JSON format."
+                f"Do not use hashtags or emojis, and return the output in the same JSON format."
             )
             try:
                 data = self._call_llm_json(system_prompt, shorten_prompt)
@@ -212,8 +212,8 @@ class LLMClient:
                 break
 
         # Final safety truncation
-        if len(polished_tweet) > 280:
-            print("Warning: Tweet is still too long after 3 shortening attempts. Truncating to 277 characters + '...'")
-            polished_tweet = polished_tweet[:277] + "..."
+        if len(polished_tweet) > 260:
+            print("Warning: Tweet is still too long after 3 shortening attempts. Truncating to 257 characters + '...'")
+            polished_tweet = polished_tweet[:257] + "..."
             
         return polished_tweet
