@@ -2,7 +2,7 @@ name: Run Buffer Automated Twitter Bot
 
 on:
   schedule:
-    # Run once a day at 08:00 UTC to generate and queue 5 posts for the day.
+    # Run once a day at 08:00 UTC to generate and queue 2 posts for the day.
     # Buffer queue schedule will publish these throughout the day at your best times.
     - cron: '0 8 * * *'
   
@@ -48,7 +48,7 @@ jobs:
           BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
           BUFFER_CHANNEL_ID: ${{ secrets.BUFFER_CHANNEL_ID }}
         run: |
-          python main.py --run --count 5
+          python main.py --run --count 2
 
       # Step 5: Commit and Push updated history.json
       - name: Commit and Push History
