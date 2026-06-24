@@ -197,7 +197,8 @@ class LLMClient:
             "3. Ensure the hook (first line) is compelling and clicks with readers.\n"
             "4. NEVER use emojis.\n"
             "5. NO HASHTAGS.\n"
-            "6. Keep the tone natural and authentic.\n\n"
+            "6. Keep the tone natural and authentic.\n"
+            "7. Flow and logic are paramount. DO NOT awkwardly force phrases from the brand voice guidelines into the text.\n\n"
             "Return a JSON object with a single key 'polished_tweet' containing the final polished tweet text."
         )
 
