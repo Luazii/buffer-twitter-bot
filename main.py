@@ -224,23 +224,33 @@ def cmd_run(mock: bool = False, count: int = 1):
             
         if mock:
             buffer_key = "mock"
-            channel_id = "mock"
+            channel_ids = ["mock"]
             print("\n[MOCK] Bypassing Buffer API. Simulating queue additions.")
         else:
             buffer_key = get_env_var("BUFFER_API_KEY")
-            channel_id = get_env_var("BUFFER_CHANNEL_ID")
+            channel_id_str = get_env_var("BUFFER_CHANNEL_ID")
+            channel_ids = [cid.strip() for cid in channel_id_str.split(",") if cid.strip()]
         
-        print(f"\nScheduling post on Buffer (Channel ID: {channel_id})...")
+        success_count = 0
+        if mock:
+            for channel_id in channel_ids:
+                print(f"\n[MOCK] Scheduling post on Buffer (Channel ID: {channel_id})...")
+                post_info = {"id": f"mock_buffer_post_{12345 + i}_{channel_id}"}
+                print(f"Success! Post queued. Buffer Post ID: {post_info.get('id')}")
+                success_count += 1
+        else:
+            buffer = BufferClient(buffer_key)
+            for channel_id in channel_ids:
+                print(f"\nScheduling post on Buffer (Channel ID: {channel_id})...")
+                try:
+                    post_info = buffer.create_post(channel_id, polished_tweet)
+                    print(f"Success! Post queued. Buffer Post ID: {post_info.get('id')}")
+                    success_count += 1
+                except Exception as e:
+                    print(f"Failed to schedule post on Buffer for channel {channel_id}: {e}", file=sys.stderr)
         
-        try:
-            if mock:
-                post_info = {"id": f"mock_buffer_post_{12345 + i}"}
-            else:
-                buffer = BufferClient(buffer_key)
-                post_info = buffer.create_post(channel_id, polished_tweet)
-            print(f"Success! Post queued. Buffer Post ID: {post_info.get('id')}")
-        except Exception as e:
-            print(f"Failed to schedule post on Buffer: {e}", file=sys.stderr)
+        if success_count == 0:
+            print("Failed to schedule post on any Buffer channel. Exiting.", file=sys.stderr)
             sys.exit(1)
             
         print("Updating history file...")

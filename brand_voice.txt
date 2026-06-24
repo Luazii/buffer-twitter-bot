@@ -280,7 +280,7 @@ Avoid:
 
 # Success Metric
 
-A great Threads post should make someone do at least one of these:
+A great post should make someone do at least one of these:
 
 * Reply
 * Repost
